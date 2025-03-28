@@ -1,4 +1,4 @@
-name: Ejecutar script y enviar archivo a Power Automate
+name: Facturas
 
 on:
   schedule:
