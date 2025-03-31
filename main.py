@@ -1,20 +1,21 @@
 import os
 import psycopg2
-import pandas as pd
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import sys
 
 def main():
-    # Leer las credenciales y la ruta del archivo desde variables de entorno
+    # 1. Obtener credenciales y la ruta del archivo base
     db_name = os.environ.get('DB_NAME', 'semillas')
     db_user = os.environ.get('DB_USER', 'openerp')
     db_password = os.environ.get('DB_PASSWORD', '')
     db_host = os.environ.get('DB_HOST', '2.136.142.253')
     db_port = os.environ.get('DB_PORT', '5432')
-    file_path = os.environ.get('EXCEL_FILE_PATH', 'facturas_bbseeds.xlsx')
+    # Se espera que EXCEL_FILE_PATH se configure en GitHub Secrets; de lo contrario se usa el valor por defecto.
+    file_path = os.environ.get('EXCEL_FILE_PATH', 'Master_Facturas_Desglosadas_2025.xlsx')
     
     db_params = {
         'dbname': db_name,
@@ -24,13 +25,14 @@ def main():
         'port': db_port
     }
     
-    # Calcular fechas: desde el primer día de hace dos meses hasta el día actual.
+    # 2. Calcular el rango de fechas:
+    # Desde el primer día del mes de hace dos meses hasta el día actual.
     end_date = datetime.now()
     start_date = (end_date - relativedelta(months=2)).replace(day=1)
     end_date_str = end_date.strftime('%Y-%m-%d')
     start_date_str = start_date.strftime('%Y-%m-%d')
     
-    # Consulta SQL para la nueva consulta, usando DISTINCT ON (sm.id)
+    # 3. Consulta SQL (utilizando DISTINCT ON (sm.id))
     query = f"""
     SELECT DISTINCT ON (sm.id)
         sm.invoice_id as "ID FACTURA",
@@ -146,10 +148,10 @@ def main():
         pm.name,
         rpa.city
     ORDER BY 
-        sm.id,
-        stp.number_of_packages DESC;
+        sm.id, stp.number_of_packages DESC;
     """
     
+    # 4. Ejecutar la consulta y obtener los datos
     try:
         with psycopg2.connect(**db_params) as conn:
             with conn.cursor() as cur:
@@ -166,26 +168,34 @@ def main():
     else:
         print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
     
-    # Cargar el archivo Excel existente o crear uno nuevo si no existe
+    # 5. Abrir el archivo base "Master_Facturas_Desglosadas_2025.xlsx" (ubicado en la raíz del repositorio)
     try:
         book = load_workbook(file_path)
         sheet = book.active
     except FileNotFoundError:
-        book = Workbook()
-        sheet = book.active
-        sheet.title = "Resultados"
-        sheet.append(headers)
-        for cell in sheet["1:1"]:
-            cell.font = Font(bold=True)
+        print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
+        return
     
-    # Evitar duplicados usando el ID de factura (sm.id)
+    # 6. Evitar duplicados (asumiendo que la primera columna es "ID FACTURA")
     existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True)}
     for row in resultados:
         if row[0] not in existing_ids:
             sheet.append(row)
     
+    # 7. Actualizar la referencia de la tabla existente (la tabla se llama "Lineas2025")
+    if "Lineas2025" in sheet.tables:
+        tabla = sheet.tables["Lineas2025"]
+        max_row = sheet.max_row
+        max_col = sheet.max_column
+        last_col_letter = get_column_letter(max_col)
+        new_ref = f"A1:{last_col_letter}{max_row}"
+        tabla.ref = new_ref
+        print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
+    else:
+        print("No se encontró la tabla 'Lineas2025'. Se conservará el formato actual, pero no se actualizará la referencia de la tabla.")
+    
     book.save(file_path)
-    print(f"Los datos se han guardado en el archivo {file_path}.")
+    print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
 
 if __name__ == '__main__':
     main()
