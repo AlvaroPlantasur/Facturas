@@ -1,12 +1,15 @@
-name: Facturas
+permissions:
+  contents: write
+
+name: Ejecutar script y actualizar archivo en OneDrive y repositorio
 
 on:
   schedule:
-    - cron: '0 * * * *'   # Se ejecuta cada hora (ajusta según tus necesidades)
-  workflow_dispatch:      # Permite ejecutar el workflow manualmente
+    - cron: '0 * * * *'   # Se ejecuta cada hora (UTC)
+  workflow_dispatch:
 
 jobs:
-  run-and-send:
+  run-and-update:
     runs-on: ubuntu-latest
     env:
       DB_NAME: ${{ secrets.DB_NAME }}
@@ -14,10 +17,13 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_HOST: ${{ secrets.DB_HOST }}
       DB_PORT: ${{ secrets.DB_PORT }}
-      EXCEL_FILE_PATH: ${{ secrets.EXCEL_FILE_PATH }}
+      EXCEL_FILE_PATH: ${{ secrets.EXCEL_FILE_PATH }}  # Ejemplo: "Master_Facturas_Desglosadas_2025.xlsx"
     steps:
       - name: Checkout del repositorio
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: List files in directory (pre-run)
+        run: ls -la
 
       - name: Configurar Python
         uses: actions/setup-python@v4
@@ -27,11 +33,26 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Ejecutar script
+      - name: Ejecutar script de actualización del Excel
         run: python main.py
 
-      - name: Enviar archivo a Power Automate
+      - name: List files in directory (post-run)
+        run: ls -la
+
+      # Commit y push del archivo actualizado en el repositorio
+      - name: Commit updated Excel file
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add "${{ env.EXCEL_FILE_PATH }}"
+          git commit -m "Actualizar archivo Excel con nuevos datos" || echo "No hay cambios que commitear"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Enviar el archivo actualizado directamente a Power Automate
+      - name: Enviar archivo actualizado a Power Automate
         run: |
           curl -X POST "https://prod-174.westeurope.logic.azure.com:443/workflows/577f204a906a450b9d2964640073bab5/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=gfKa0Yp0vILrw5KENggyypz5MZHuuEHaU0ot1Ov9s_Q" \
-          -H "Content-Type: application/octet-stream" \
-          --data-binary "@${{ env.EXCEL_FILE_PATH }}"
+            -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+            --data-binary "@${{ env.EXCEL_FILE_PATH }}"
