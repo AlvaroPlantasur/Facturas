@@ -9,13 +9,13 @@ import sys
 
 def main():
     # 1. Obtener credenciales y la ruta del archivo base
-    db_name = os.environ.get('DB_NAME', 'semillas')
-    db_user = os.environ.get('DB_USER', 'openerp')
-    db_password = os.environ.get('DB_PASSWORD', '')
-    db_host = os.environ.get('DB_HOST', '2.136.142.253')
-    db_port = os.environ.get('DB_PORT', '5432')
+    db_name = os.environ.get('DB_NAME')
+    db_user = os.environ.get('DB_USER')
+    db_password = os.environ.get('DB_PASSWORD')
+    db_host = os.environ.get('DB_HOST')
+    db_port = os.environ.get('DB_PORT')
     # Se espera que EXCEL_FILE_PATH se configure en GitHub Secrets; de lo contrario se usa el valor por defecto.
-    file_path = os.environ.get('EXCEL_FILE_PATH', 'Master_Facturas_Desglosadas_2025.xlsx')
+    file_path = os.environ.get('EXCEL_FILE_PATH')
     
     db_params = {
         'dbname': db_name,
