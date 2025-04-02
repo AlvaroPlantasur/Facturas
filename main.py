@@ -22,7 +22,8 @@ def main():
         'user': db_user,
         'password': db_password,
         'host': db_host,
-        'port': db_port
+        'port': db_port,
+        'sslmode': 'require'
     }
     
     # 2. Calcular el rango de fechas:
