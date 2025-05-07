@@ -14,9 +14,12 @@ def main():
     db_password = os.environ.get('DB_PASSWORD')
     db_host = os.environ.get('DB_HOST')
     db_port = os.environ.get('DB_PORT')
-    # Se espera que EXCEL_FILE_PATH se configure en GitHub Secrets; de lo contrario se usa el valor por defecto.
     file_path = os.environ.get('EXCEL_FILE_PATH')
-    
+
+    if not file_path:
+        print("No se especificó la ruta del archivo Excel (EXCEL_FILE_PATH).")
+        return
+
     db_params = {
         'dbname': db_name,
         'user': db_user,
@@ -25,134 +28,141 @@ def main():
         'port': db_port,
         'sslmode': 'require'
     }
-    
-    # 2. Calcular el rango de fechas:
-    # Desde el primer día del mes de hace dos meses hasta el día actual.
+
+    # 2. Calcular el rango de fechas
     end_date = datetime.now()
     start_date = (end_date - relativedelta(months=2)).replace(day=1)
     end_date_str = end_date.strftime('%Y-%m-%d')
     start_date_str = start_date.strftime('%Y-%m-%d')
-    
-    # 3. Consulta SQL (utilizando DISTINCT ON (sm.id))
+
+    # 3. Consulta SQL (con las fechas corregidas)
     query = f"""
-    SELECT DISTINCT ON (sm.id)
-        sm.invoice_id as "ID FACTURA",
-        rp.id as "ID CLIENTE",
-        'S-' || rp.id AS "ID BBSeeds",
-        sp.name as "DESCRIPCIÓN",
-        sp.internal_number as "CÓDIGO FACTURA",
-        sp.number as "NÚMERO DEL ASIENTO",
-        to_char(sp.date_invoice, 'DD/MM/YYYY') as "FECHA FACTURA",
-        sp.origin as "DOCUMENTO ORIGEN",
-        pp.default_code as "REFERENCIA PRODUCTO", 
-        pp.name as "NOMBRE", 
-        COALESCE(pm.name,'') as "MARCA",
-        s.name AS "SECCION", 
-        f.name as "FAMILIA", 
-        sf.name as "SUBFAMILIA",
-        rc.name as "COMPAÑÍA",
-        ssp.name as "SEDE",
-        stp.date_preparado_app as "FECHA PREPARADO APP",
-        (CASE WHEN stp.directo_cliente = true THEN 'Sí' ELSE 'No' END) AS "CAMIÓN DIRECTO",
-        stp.number_of_packages as "NUMERO DE BULTOS",
-        stp.num_pales as "NUMERO DE PALES",
-        sp.portes as "PORTES",
-        sp.portes_cubiertos as "PORTES CUBIERTOS",
-        rp.nombre_comercial as "CLIENTE",
-        rp.vat as "CIF CLIENTE",
-        (CASE WHEN rpa.prov_id IS NOT NULL THEN (SELECT name FROM res_country_provincia WHERE id = rpa.prov_id) 
-              ELSE rpa.state_id_2 END) as "PROVINCIA",
-        rpa.city as "CIUDAD",
-        (CASE WHEN rpa.cautonoma_id IS NOT NULL THEN (SELECT upper(name) FROM res_country_ca WHERE id = rpa.cautonoma_id) 
-              ELSE '' END) as "COMUNIDAD",
-        c.name as "PAÍS",
-        to_char(sp.date_invoice, 'MM') as "MES",
-        to_char(sp.date_invoice, 'DD') as "DÍA",
-        spp.name as "PREPARADOR",
-        sm.peso_arancel as "PESO",
-        sum(CASE WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida
-                 WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida END) as "UNIDADES VENTA",
-        sum(CASE WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
-                 WHEN sp.type = 'out_refund' THEN -sm.price_subtotal END) as "BASE VENTA TOTAL",
-        sum(CASE WHEN sp.type = 'out_invoice' THEN sm.margen
-                 WHEN sp.type = 'out_refund' THEN -sm.margen END) as "MARGEN EUROS",
-        sum(CASE WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida * sm.cost_price_real
-                 WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida * sm.cost_price_real END) as "COSTE VENTA TOTAL"
-    FROM account_invoice_line sm
-    INNER JOIN account_invoice sp ON sp.id = sm.invoice_id
-    INNER JOIN product_product pp ON sm.product_id = pp.id
-    INNER JOIN res_partner_address rpa ON sp.address_invoice_id = rpa.id
-    INNER JOIN res_country c ON c.id = rpa.pais_id
-    LEFT OUTER JOIN stock_picking_invoice_rel spir ON spir.invoice_id = sp.id
-    LEFT OUTER JOIN stock_picking stp ON stp.id = spir.pick_id
-    LEFT OUTER JOIN stock_picking_preparador spp ON spp.id = stp.preparador
-    LEFT OUTER JOIN res_company rc ON rc.id = sp.company_id
-    LEFT OUTER JOIN res_partner rp ON rp.id = sp.partner_id
-    LEFT OUTER JOIN stock_sede_ps ssp ON ssp.id = sp.sede_id
-    LEFT OUTER JOIN product_category s ON s.id = pp.seccion
-    LEFT OUTER JOIN product_category f ON f.id = pp.familia
-    LEFT OUTER JOIN product_category sf ON sf.id = pp.subfamilia
-    LEFT OUTER JOIN product_marca pm ON pm.id = pp.marca
-    WHERE sp.type in ('out_invoice','out_refund')
-      AND sp.state in ('open','paid')
-      AND sp.journal_id != 11
-      AND sp.anticipo = false
-      AND pp.default_code NOT LIKE 'XXX%'
-      AND sp.obsolescencia = false
-      AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%'
-      AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%'
-      AND sp.date_invoice >= '{start_date_str}' 
-      AND sp.date_invoice <= '{end_date_str}'
-    GROUP BY 
-        sm.id,
-        rp.id,
-        sm.company_id,
-        sp.sede_id,
-        sp.date_invoice,
-        pp.seccion,
-        pp.familia,
-        pp.subfamilia,
-        pp.default_code,
-        pp.id,
-        sm.cantidad_pedida,
-        sp.partner_id,
-        rpa.prov_id,
-        rpa.state_id_2,
-        rpa.cautonoma_id,
-        c.name,
-        sp.address_invoice_id,
-        pp.proveedor_id1,
-        sm.price_subtotal,
-        sm.margen,
-        pp.tarifa5,
-        sp.directo_cliente,
-        sp.obsolescencia,
-        sp.anticipo,
-        sp.name,
-        s.name,
-        f.name,
-        sf.name,
-        rc.name,
-        ssp.name,
-        stp.date_preparado_app,
-        stp.directo_cliente,
-        stp.number_of_packages,
-        stp.num_pales,
-        sp.portes,
-        sp.portes_cubiertos,
-        rp.nombre_comercial,
-        spp.name,
-        sp.internal_number,
-        sp.origin,
-        sp.number,
-        rp.vat,
-        pm.name,
-        rpa.city
-    ORDER BY 
-        sm.id, stp.number_of_packages DESC;
-    """
-    
-    # 4. Ejecutar la consulta y obtener los datos
+SELECT DISTINCT ON (sm.id)
+    sm.invoice_id AS "ID FACTURA",
+    sp.name AS "DESCRIPCIÓN",
+    sp.internal_number AS "CÓDIGO FACTURA",
+    sp.number AS "NÚMERO DEL ASIENTO",
+    to_char(sp.date_invoice, 'DD/MM/YYYY') AS "FECHA FACTURA",
+    sp.origin AS "DOCUMENTO ORIGEN",
+    pp.default_code AS "REFERENCIA PRODUCTO", 
+    pp.name AS "NOMBRE", 
+    COALESCE(pm.name, '') AS "MARCA",
+    s.name AS "SECCION", 
+    f.name AS "FAMILIA", 
+    sf.name AS "SUBFAMILIA",
+    rc.name AS "COMPAÑÍA",
+    ssp.name AS "SEDE",
+    stp.date_preparado_app AS "FECHA PREPARADO APP",
+    (CASE WHEN stp.directo_cliente THEN 'Sí' ELSE 'No' END) AS "CAMIÓN DIRECTO",
+    stp.number_of_packages AS "NUMERO DE BULTOS",
+    stp.num_pales AS "NUMERO DE PALES",
+    sp.portes AS "PORTES",
+    sp.portes_cubiertos AS "PORTES CUBIERTOS",
+    rp.nombre_comercial AS "CLIENTE",
+    rp.vat AS "CIF CLIENTE",
+    (CASE 
+        WHEN rpa.prov_id IS NOT NULL 
+        THEN (SELECT name FROM res_country_provincia WHERE id = rpa.prov_id) 
+        ELSE rpa.state_id_2 
+    END) AS "PROVINCIA",
+    rpa.city AS "CIUDAD",
+    (CASE 
+        WHEN rpa.cautonoma_id IS NOT NULL 
+        THEN (SELECT UPPER(name) FROM res_country_ca WHERE id = rpa.cautonoma_id) 
+        ELSE '' 
+    END) AS "COMUNIDAD",
+    c.name AS "PAÍS",
+    to_char(sp.date_invoice, 'MM') AS "MES",
+    to_char(sp.date_invoice, 'DD') AS "DÍA",
+    spp.name AS "PREPARADOR",
+    sm.peso_arancel AS "PESO",
+    SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida
+            WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida
+        END
+    ) AS "UNIDADES VENTA",
+    SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
+            WHEN sp.type = 'out_refund' THEN -sm.price_subtotal
+        END
+    ) AS "BASE VENTA TOTAL",
+    SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.margen
+            WHEN sp.type = 'out_refund' THEN -sm.margen
+        END
+    ) AS "MARGEN EUROS",
+    SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida * sm.cost_price_real
+            WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida * sm.cost_price_real
+        END
+    ) AS "COSTE VENTA TOTAL",
+    'S-' || rp.id AS "ID BBSeeds",
+    (CASE 
+        WHEN rp.fiscal_position_texto = 'Recargo de Equivalencia' THEN 'Recargo de Equivalencia'
+        WHEN rp.fiscal_position_texto = 'Régimen Extracomunitario' THEN 'Régimen Extracomunitario'
+        WHEN rp.fiscal_position_texto ILIKE 'Régimen Intracomunitario' THEN 'Régimen Intracomunitario'
+        WHEN rp.fiscal_position_texto ILIKE 'Régimen Nacional' THEN 'Régimen Nacional'
+        ELSE rp.fiscal_position_texto
+    END) AS "Tipo Regimen",
+    (SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
+            WHEN sp.type = 'out_refund' THEN -sm.price_subtotal
+        END
+    ) - 
+    SUM(
+        CASE 
+            WHEN sp.type = 'out_invoice' THEN sm.margen
+            WHEN sp.type = 'out_refund' THEN -sm.margen
+        END
+    )) AS "Coste Calculado"
+
+FROM account_invoice_line sm
+INNER JOIN account_invoice sp ON sp.id = sm.invoice_id
+INNER JOIN product_product pp ON sm.product_id = pp.id
+INNER JOIN res_partner_address rpa ON sp.address_invoice_id = rpa.id
+INNER JOIN res_country c ON c.id = rpa.pais_id
+LEFT JOIN stock_picking_invoice_rel spir ON spir.invoice_id = sp.id
+LEFT JOIN stock_picking stp ON stp.id = spir.pick_id
+LEFT JOIN stock_picking_preparador spp ON spp.id = stp.preparador
+LEFT JOIN res_company rc ON rc.id = sp.company_id
+LEFT JOIN res_partner rp ON rp.id = sp.partner_id
+LEFT JOIN stock_sede_ps ssp ON ssp.id = sp.sede_id
+LEFT JOIN product_category s ON s.id = pp.seccion
+LEFT JOIN product_category f ON f.id = pp.familia
+LEFT JOIN product_category sf ON sf.id = pp.subfamilia
+LEFT JOIN product_marca pm ON pm.id = pp.marca
+
+WHERE sp.type IN ('out_invoice', 'out_refund') 
+AND sp.state IN ('open', 'paid') 
+AND sp.journal_id != 11 
+AND sp.anticipo = FALSE 
+AND pp.default_code NOT LIKE 'XXX%' 
+AND sp.obsolescencia = FALSE 
+AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%' 
+AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%' 
+AND sp.date_invoice BETWEEN '{start_date_str}' AND '{end_date_str}'
+
+GROUP BY 
+    sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, 
+    pp.seccion, pp.familia, pp.subfamilia, pp.default_code, pp.id, 
+    sm.cantidad_pedida, sp.partner_id, rpa.prov_id, rpa.state_id_2, 
+    rpa.cautonoma_id, c.name, sp.address_invoice_id, pp.proveedor_id1, 
+    sm.price_subtotal, sm.margen, pp.tarifa5, sp.directo_cliente, 
+    sp.obsolescencia, sp.anticipo, sp.name, s.name, f.name, sf.name, 
+    rc.name, ssp.name, stp.date_preparado_app, stp.directo_cliente, 
+    stp.number_of_packages, stp.num_pales, sp.portes, sp.portes_cubiertos, 
+    rp.nombre_comercial, spp.name, sp.internal_number, sp.origin, 
+    sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
+
+ORDER BY sm.id, stp.number_of_packages DESC;
+"""
+
+    # 4. Ejecutar la consulta
     try:
         with psycopg2.connect(**db_params) as conn:
             with conn.cursor() as cur:
@@ -162,28 +172,28 @@ def main():
     except Exception as e:
         print(f"Error al conectar o ejecutar la consulta: {e}")
         sys.exit(1)
-    
+
     if not resultados:
         print("No se obtuvieron resultados de la consulta.")
         return
     else:
         print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
-    
-    # 5. Abrir el archivo base "Master_Facturas_Desglosadas_2025.xlsx" (ubicado en la raíz del repositorio)
+
+    # 5. Abrir el archivo Excel base
     try:
         book = load_workbook(file_path)
         sheet = book.active
     except FileNotFoundError:
         print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
         return
-    
-    # 6. Evitar duplicados (asumiendo que la primera columna es "ID FACTURA")
+
+    # 6. Evitar duplicados por ID FACTURA
     existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True)}
     for row in resultados:
         if row[0] not in existing_ids:
             sheet.append(row)
-    
-    # 7. Actualizar la referencia de la tabla existente (la tabla se llama "Lineas2025")
+
+    # 7. Actualizar referencia de tabla si existe
     if "Lineas2025" in sheet.tables:
         tabla = sheet.tables["Lineas2025"]
         max_row = sheet.max_row
@@ -194,7 +204,8 @@ def main():
         print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
     else:
         print("No se encontró la tabla 'Lineas2025'. Se conservará el formato actual, pero no se actualizará la referencia de la tabla.")
-    
+
+    # 8. Guardar archivo actualizado
     book.save(file_path)
     print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
 
