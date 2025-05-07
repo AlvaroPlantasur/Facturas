@@ -30,10 +30,13 @@ def main():
     }
 
     # 2. Calcular el rango de fechas
-    end_date = datetime.now()
-    start_date = (end_date - relativedelta(months=2)).replace(day=1)
+    end_date = datetime.now()  # Fecha de fin: hoy
+    start_date = datetime(2025, 3, 21)  # Fecha de inicio: 21 de marzo de 2025
+    
     end_date_str = end_date.strftime('%Y-%m-%d')
     start_date_str = start_date.strftime('%Y-%m-%d')
+
+     
 
     # 3. Consulta SQL (con las fechas corregidas)
     query = f"""
