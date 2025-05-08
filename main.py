@@ -25,11 +25,10 @@ def main():
         'sslmode': 'require'
     }
     
-    # 2. Calcular el rango de fechas dinámico
-    end_date = datetime.now()
-    start_date = (end_date - relativedelta(months=2)).replace(day=1)
-    end_date_str = end_date.strftime('%Y-%m-%d')
-    start_date_str = start_date.strftime('%Y-%m-%d')
+     # 2. Definir la nueva consulta SQL con fechas dinámicas
+    fecha_inicio_str = '2025-01-01'
+    fecha_fin = datetime.now().date()
+    fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
     
     print(f"Rango de fechas para la consulta: Desde {start_date_str} hasta {end_date_str}")
 
