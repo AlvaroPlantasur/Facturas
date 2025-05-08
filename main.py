@@ -30,7 +30,7 @@ def main():
     fecha_fin = datetime.now().date()
     fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
     
-    print(f"Rango de fechas para la consulta: Desde {start_date_str} hasta {end_date_str}")
+    print(f"Rango de fechas para la consulta: Desde {fecha_inicio_str} hasta {fecha_fin_str}")
 
     # 3. Consulta SQL (modificada para que "FECHA FACTURA" sea un tipo de dato de fecha)
     query = f"""
