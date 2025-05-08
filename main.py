@@ -1,7 +1,7 @@
 import os
 import psycopg2
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import Font
+from openpyxl import load_workbook
+# from openpyxl.styles import Font # No se usa activamente
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
@@ -14,7 +14,6 @@ def main():
     db_password = os.environ.get('DB_PASSWORD')
     db_host = os.environ.get('DB_HOST')
     db_port = os.environ.get('DB_PORT')
-    # Se espera que EXCEL_FILE_PATH se configure en GitHub Secrets; de lo contrario se usa el valor por defecto.
     file_path = os.environ.get('EXCEL_FILE_PATH')
     
     db_params = {
@@ -26,21 +25,22 @@ def main():
         'sslmode': 'require'
     }
     
-   # 2. Calcular el rango de fechas
-    end_date = datetime.now()  # Fecha de fin: hoy
-    start_date = datetime(2025, 3, 21)  # Fecha de inicio: 21 de marzo de 2025
-    
+    # 2. Calcular el rango de fechas dinámico
+    end_date = datetime.now()
+    start_date = (end_date - relativedelta(months=2)).replace(day=1)
     end_date_str = end_date.strftime('%Y-%m-%d')
     start_date_str = start_date.strftime('%Y-%m-%d')
     
-    # 3. Consulta SQL (utilizando DISTINCT ON (sm.id))
+    print(f"Rango de fechas para la consulta: Desde {start_date_str} hasta {end_date_str}")
+
+    # 3. Consulta SQL (modificada para que "FECHA FACTURA" sea un tipo de dato de fecha)
     query = f"""
     SELECT DISTINCT ON (sm.id)
         sm.invoice_id AS "ID FACTURA",
         sp.name AS "DESCRIPCIÓN",
         sp.internal_number AS "CÓDIGO FACTURA",
         sp.number AS "NÚMERO DEL ASIENTO",
-        to_char(sp.date_invoice, 'DD/MM/YYYY') AS "FECHA FACTURA",
+        sp.date_invoice AS "FECHA FACTURA", -- MODIFICADO: Ya no usa to_char
         sp.origin AS "DOCUMENTO ORIGEN",
         pp.default_code AS "REFERENCIA PRODUCTO", 
         pp.name AS "NOMBRE", 
@@ -70,8 +70,8 @@ def main():
             ELSE '' 
         END) AS "COMUNIDAD",
         c.name AS "PAÍS",
-        to_char(sp.date_invoice, 'MM') AS "MES",
-        to_char(sp.date_invoice, 'DD') AS "DÍA",
+        to_char(sp.date_invoice, 'MM') AS "MES", -- Mantenido como texto, es el mes como número en string
+        to_char(sp.date_invoice, 'DD') AS "DÍA", -- Mantenido como texto, es el día como número en string
         spp.name AS "PREPARADOR",
         sm.peso_arancel AS "PESO",
         SUM(
@@ -98,7 +98,7 @@ def main():
                 WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida * sm.cost_price_real
             END
         ) AS "COSTE VENTA TOTAL",
-        'S-' || rp.id AS "ID BBSeeds", -- ID Construdio desde el ID origen
+        'S-' || rp.id AS "ID BBSeeds",
         (CASE 
             WHEN rp.fiscal_position_texto = 'Recargo de Equivalencia' THEN 'Recargo de Equivalencia'
             WHEN rp.fiscal_position_texto = 'Régimen Extracomunitario' THEN 'Régimen Extracomunitario'
@@ -106,7 +106,7 @@ def main():
             WHEN rp.fiscal_position_texto = 'Régimen Intracomunitario' THEN 'Régimen Intracomunitario' 
             WHEN rp.fiscal_position_texto = 'REGIMEN NACIONAL' THEN 'Régimen Nacional'
             ELSE rp.fiscal_position_texto
-        END) AS "Tipo Regimen", -- Nueva columna "Tipo Regimen"
+        END) AS "Tipo Regimen",
         (SUM(
             CASE 
                 WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
@@ -118,7 +118,7 @@ def main():
                 WHEN sp.type = 'out_invoice' THEN sm.margen
                 WHEN sp.type = 'out_refund' THEN -sm.margen
             END
-        )) AS "Coste Calculado" -- Nueva columna "Coste Calculado"
+        )) AS "Coste Calculado"
     FROM account_invoice_line sm
     INNER JOIN account_invoice sp ON sp.id = sm.invoice_id
     INNER JOIN product_product pp ON sm.product_id = pp.id
@@ -142,10 +142,10 @@ def main():
     AND sp.obsolescencia = FALSE 
     AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%' 
     AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%' 
-    AND sp.date_invoice >= '{start_date_str}' -- FECHAS DINÁMICAS
-    AND sp.date_invoice <= '{end_date_str}'   -- FECHAS DINÁMICAS
+    AND sp.date_invoice >= '{start_date_str}' 
+    AND sp.date_invoice <= '{end_date_str}'
     GROUP BY 
-        sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, 
+        sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, -- sp.date_invoice está en GROUP BY
         pp.seccion, pp.familia, pp.subfamilia, pp.default_code, pp.id, 
         sm.cantidad_pedida, sp.partner_id, rpa.prov_id, rpa.state_id_2, 
         rpa.cautonoma_id, c.name, sp.address_invoice_id, pp.proveedor_id1, 
@@ -176,7 +176,7 @@ def main():
     else:
         print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
     
-    # 5. Abrir el archivo base "Master_Facturas_Desglosadas_2025.xlsx" (ubicado en la raíz del repositorio)
+    # 5. Abrir el archivo base
     try:
         book = load_workbook(file_path)
         sheet = book.active
@@ -184,26 +184,50 @@ def main():
         print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
         return
     
-    # 6. Evitar duplicados (asumiendo que la primera columna es "ID FACTURA")
-    existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True)}
-    for row in resultados:
-        if row[0] not in existing_ids:
-            sheet.append(row)
-    
-    # 7. Actualizar la referencia de la tabla existente (la tabla se llama "Lineas2025")
+    # 6. Evitar duplicados
+    existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True) if row[0] is not None}
+    nuevas_filas_anadidas = 0
+    for row_data in resultados:
+        if row_data[0] not in existing_ids:
+            sheet.append(row_data) # openpyxl manejará los tipos de datos de Python
+            nuevas_filas_anadidas += 1
+            existing_ids.add(row_data[0])
+
+    if nuevas_filas_anadidas > 0:
+        print(f"Se añadieron {nuevas_filas_anadidas} nuevas filas a la hoja.")
+    else:
+        print("No se añadieron nuevas filas (o ya existían o no había datos nuevos).")
+
+    # 7. Actualizar la referencia de la tabla existente
     if "Lineas2025" in sheet.tables:
         tabla = sheet.tables["Lineas2025"]
         max_row = sheet.max_row
-        max_col = sheet.max_column
-        last_col_letter = get_column_letter(max_col)
-        new_ref = f"A1:{last_col_letter}{max_row}"
-        tabla.ref = new_ref
-        print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
+        
+        if sheet.calculate_dimension() == "A1" and not headers:
+             max_col = 0
+        elif not headers and max_row == 1 and sheet.max_column == 1 and sheet["A1"].value is None:
+             max_col = 0
+        elif headers:
+             max_col = len(headers)
+        else:
+             max_col = sheet.max_column
+
+        if max_row > 0 and max_col > 0:
+            last_col_letter = get_column_letter(max_col)
+            new_ref = f"A1:{last_col_letter}{max_row}"
+            tabla.ref = new_ref
+            print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
+        elif "Lineas2025" in sheet.tables :
+             print("La tabla 'Lineas2025' existe pero no se pudo determinar un nuevo rango válido.")
     else:
-        print("No se encontró la tabla 'Lineas2025'. Se conservará el formato actual, pero no se actualizará la referencia de la tabla.")
+        print("No se encontró la tabla 'Lineas2025'.")
     
-    book.save(file_path)
-    print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
+    # 8. Guardar el libro
+    try:
+        book.save(file_path)
+        print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
+    except Exception as e:
+        print(f"Error al guardar el archivo '{file_path}': {e}")
 
 if __name__ == '__main__':
     main()
