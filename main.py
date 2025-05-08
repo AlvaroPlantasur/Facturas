@@ -141,8 +141,8 @@ def main():
     AND sp.obsolescencia = FALSE 
     AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%' 
     AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%' 
-    AND sp.date_invoice >= '{start_date_str}' 
-    AND sp.date_invoice <= '{end_date_str}'
+    AND sp.date_invoice >= '{fecha_inicio_str}' 
+    AND sp.date_invoice <= '{fecha_fin_str}'
     GROUP BY 
         sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, -- sp.date_invoice está en GROUP BY
         pp.seccion, pp.familia, pp.subfamilia, pp.default_code, pp.id, 
