@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from openpyxl import load_workbook, Workbook
-# from openpyxl.styles import Font # No se usa activamente, se puede mantener o quitar
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
@@ -26,17 +26,14 @@ def main():
         'sslmode': 'require'
     }
     
-    # 2. Calcular el rango de fechas
+   # 2. Calcular el rango de fechas
     end_date = datetime.now()  # Fecha de fin: hoy
     start_date = datetime(2025, 3, 21)  # Fecha de inicio: 21 de marzo de 2025
     
     end_date_str = end_date.strftime('%Y-%m-%d')
     start_date_str = start_date.strftime('%Y-%m-%d')
-
     
-    print(f"Rango de fechas para la consulta: Desde {start_date_str} hasta {end_date_str}")
-
-    # 3. Consulta SQL (con la nueva estructura Y fechas dinámicas)
+    # 3. Consulta SQL (utilizando DISTINCT ON (sm.id))
     query = f"""
     SELECT DISTINCT ON (sm.id)
         sm.invoice_id AS "ID FACTURA",
@@ -179,7 +176,7 @@ def main():
     else:
         print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
     
-    # 5. Abrir el archivo base
+    # 5. Abrir el archivo base "Master_Facturas_Desglosadas_2025.xlsx" (ubicado en la raíz del repositorio)
     try:
         book = load_workbook(file_path)
         sheet = book.active
@@ -188,53 +185,25 @@ def main():
         return
     
     # 6. Evitar duplicados (asumiendo que la primera columna es "ID FACTURA")
-    existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True) if row[0] is not None}
-    nuevas_filas_anadidas = 0
-    for row_data in resultados:
-        if row_data[0] not in existing_ids:
-            sheet.append(row_data)
-            nuevas_filas_anadidas += 1
-            existing_ids.add(row_data[0]) # Añadir al set para evitar duplicados si vienen en los resultados de la DB
-
-    if nuevas_filas_anadidas > 0:
-        print(f"Se añadieron {nuevas_filas_anadidas} nuevas filas a la hoja.")
-    else:
-        print("No se añadieron nuevas filas (o ya existían o no había datos nuevos).")
-
+    existing_ids = {row[0] for row in sheet.iter_rows(min_row=2, values_only=True)}
+    for row in resultados:
+        if row[0] not in existing_ids:
+            sheet.append(row)
+    
     # 7. Actualizar la referencia de la tabla existente (la tabla se llama "Lineas2025")
     if "Lineas2025" in sheet.tables:
         tabla = sheet.tables["Lineas2025"]
         max_row = sheet.max_row
-        
-        # Determinar max_col de forma más robusta
-        if sheet.calculate_dimension() == "A1" and not headers: # Hoja completamente vacía
-             max_col = 0
-        elif not headers and max_row == 1 and sheet.max_column == 1 and sheet["A1"].value is None: # Hoja técnicamente no vacía pero sin datos útiles
-             max_col = 0
-        elif headers:
-             max_col = len(headers)
-        else: # Intentar con sheet.max_column si no hay headers pero sí datos
-             max_col = sheet.max_column
-
-        if max_row > 0 and max_col > 0:
-            # Asumimos que la tabla siempre debe empezar en A1 y que los encabezados están en la fila 1
-            # Si la tabla tiene encabezados, la primera fila de datos es la 2.
-            # El rango de la tabla debe incluir los encabezados.
-            last_col_letter = get_column_letter(max_col)
-            new_ref = f"A1:{last_col_letter}{max_row}"
-            tabla.ref = new_ref
-            print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
-        elif "Lineas2025" in sheet.tables :
-             print("La tabla 'Lineas2025' existe pero no se pudo determinar un nuevo rango válido (max_row o max_col es 0, o no hay encabezados).")
+        max_col = sheet.max_column
+        last_col_letter = get_column_letter(max_col)
+        new_ref = f"A1:{last_col_letter}{max_row}"
+        tabla.ref = new_ref
+        print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
     else:
         print("No se encontró la tabla 'Lineas2025'. Se conservará el formato actual, pero no se actualizará la referencia de la tabla.")
     
-    # 8. Guardar el libro
-    try:
-        book.save(file_path)
-        print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
-    except Exception as e:
-        print(f"Error al guardar el archivo '{file_path}': {e}")
+    book.save(file_path)
+    print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
 
 if __name__ == '__main__':
     main()
