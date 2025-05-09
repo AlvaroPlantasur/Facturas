@@ -143,7 +143,7 @@ AND pp.default_code NOT LIKE 'XXX%'
 AND sp.obsolescencia = FALSE 
 AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%' 
 AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%' 
-AND sp.date_invoice BETWEEN '2024-01-01' AND '2024-12-31'
+AND sp.date_invoice BETWEEN '{fecha_inicio_str}' AND '{fecha_fin_str}'
  
 GROUP BY 
     sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, 
