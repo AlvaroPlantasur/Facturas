@@ -6,28 +6,21 @@ from datetime import datetime
 import sys
 
 def main():
-    # 1. Obtener credenciales y la ruta del archivo base
-    db_name = os.environ.get('DB_NAME')
-    db_user = os.environ.get('DB_USER')
-    db_password = os.environ.get('DB_PASSWORD')
-    db_host = os.environ.get('DB_HOST')
-    db_port = os.environ.get('DB_PORT')
-    file_path = os.environ.get('EXCEL_FILE_PATH')
-    
+    # Parámetros de entorno
     db_params = {
-        'dbname': db_name,
-        'user': db_user,
-        'password': db_password,
-        'host': db_host,
-        'port': db_port,
+        'dbname': os.environ.get('DB_NAME'),
+        'user': os.environ.get('DB_USER'),
+        'password': os.environ.get('DB_PASSWORD'),
+        'host': os.environ.get('DB_HOST'),
+        'port': os.environ.get('DB_PORT'),
         'sslmode': 'require'
     }
 
+    file_path = '/mnt/data/Master Facturas Desglosadas 2025.xlsx'
     fecha_inicio_str = '2025-01-01'
-    fecha_fin = datetime.now().date()
-    fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
-    
-    print(f"Rango de fechas para la consulta: Desde {fecha_inicio_str} hasta {fecha_fin_str}")
+    fecha_fin_str = datetime.now().strftime('%Y-%m-%d')
+
+    print(f"Consultando desde {fecha_inicio_str} hasta {fecha_fin_str}")
 
     query = f""" 
     SELECT DISTINCT ON (sm.id)
@@ -156,7 +149,7 @@ GROUP BY
 ORDER BY sm.id, stp.number_of_packages DESC;
     """
 
-    # 2. Ejecutar la consulta y obtener los datos
+    # Ejecutar consulta
     try:
         with psycopg2.connect(**db_params) as conn:
             with conn.cursor() as cur:
@@ -164,53 +157,49 @@ ORDER BY sm.id, stp.number_of_packages DESC;
                 resultados = cur.fetchall()
                 headers = [desc[0] for desc in cur.description]
     except Exception as e:
-        print(f"Error al conectar o ejecutar la consulta: {e}")
+        print(f"Error al ejecutar la consulta: {e}")
         sys.exit(1)
-    
+
     if not resultados:
-        print("No se obtuvieron resultados de la consulta.")
-        return
-    else:
-        print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
-    
-    # 3. Abrir el archivo base
-    try:
-        book = load_workbook(file_path)
-        sheet = book.active
-    except FileNotFoundError:
-        print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
+        print("No hay datos para insertar.")
         return
 
-    # 4. Eliminar el contenido desde la segunda fila (mantiene encabezados y formatos)
-    for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
+    # Cargar archivo
+    try:
+        wb = load_workbook(file_path)
+        ws = wb.active
+    except Exception as e:
+        print(f"No se pudo abrir el archivo Excel: {e}")
+        return
+
+    # Borrar datos anteriores (sin borrar encabezados)
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         for cell in row:
             cell.value = None
 
-    # 5. Insertar nuevas filas desde la segunda fila
-    start_row = 2
-    for row_idx, row_data in enumerate(resultados, start=start_row):
-        for col_idx, value in enumerate(row_data, start=1):
-            sheet.cell(row=row_idx, column=col_idx, value=value)
+    # Insertar nuevos datos desde fila 2
+    for i, row_data in enumerate(resultados, start=2):
+        for j, value in enumerate(row_data, start=1):
+            ws.cell(row=i, column=j, value=value)
 
-    print(f"Se sobrescribieron {len(resultados)} filas en la hoja.")
-
-    # 6. Actualizar rango de la tabla si existe
-    if sheet._tables:
-        table = sheet._tables[0]  # Suponemos que hay solo una tabla
-        num_rows = len(resultados) + 1  # +1 por la cabecera
+    # Actualizar tabla existente
+    if ws._tables:
+        table = ws._tables[0]  # Usamos la primera tabla
+        num_rows = len(resultados) + 1  # +1 por encabezado
         num_cols = len(headers)
-
-        end_col_letter = get_column_letter(num_cols)
-        new_range = f"A1:{end_col_letter}{num_rows}"
-        print(f"Actualizando rango de la tabla a: {new_range}")
+        end_col = get_column_letter(num_cols)
+        new_range = f"A1:{end_col}{num_rows}"
+        print(f"Actualizando tabla a rango: {new_range}")
         table.ref = new_range
+    else:
+        print("⚠️ No se encontró ninguna tabla definida en la hoja activa.")
 
-    # 7. Guardar el libro
+    # Guardar cambios
     try:
-        book.save(file_path)
-        print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
+        wb.save(file_path)
+        print("Archivo actualizado y guardado correctamente.")
     except Exception as e:
-        print(f"Error al guardar el archivo '{file_path}': {e}")
+        print(f"Error al guardar el archivo: {e}")
 
 if __name__ == '__main__':
     main()
