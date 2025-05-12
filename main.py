@@ -1,10 +1,8 @@
 import os
 import psycopg2
 from openpyxl import load_workbook
-# from openpyxl.styles import Font  # No se usa activamente
 from openpyxl.utils import get_column_letter
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
 import sys
 
 def main():
@@ -24,16 +22,14 @@ def main():
         'port': db_port,
         'sslmode': 'require'
     }
-    
-    # 2. Definir la nueva consulta SQL con fechas dinámicas
+
     fecha_inicio_str = '2025-01-01'
     fecha_fin = datetime.now().date()
     fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
     
     print(f"Rango de fechas para la consulta: Desde {fecha_inicio_str} hasta {fecha_fin_str}")
 
-    # 3. Consulta SQL
-    query = f"""
+    query = f""" 
     SELECT DISTINCT ON (sm.id)
     sm.invoice_id AS "ID FACTURA",
     sp.name AS "DESCRIPCIÓN",
@@ -158,9 +154,9 @@ GROUP BY
     sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
  
 ORDER BY sm.id, stp.number_of_packages DESC;
-    """  
+    """
 
-    # 4. Ejecutar la consulta y obtener los datos
+    # 2. Ejecutar la consulta y obtener los datos
     try:
         with psycopg2.connect(**db_params) as conn:
             with conn.cursor() as cur:
@@ -177,7 +173,7 @@ ORDER BY sm.id, stp.number_of_packages DESC;
     else:
         print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
     
-    # 5. Abrir el archivo base
+    # 3. Abrir el archivo base
     try:
         book = load_workbook(file_path)
         sheet = book.active
@@ -185,20 +181,31 @@ ORDER BY sm.id, stp.number_of_packages DESC;
         print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
         return
 
-    # 6. Eliminar el contenido existente desde la segunda fila (mantiene encabezados y formatos)
+    # 4. Eliminar el contenido desde la segunda fila (mantiene encabezados y formatos)
     for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
         for cell in row:
             cell.value = None
 
-    # 7. Insertar nuevas filas desde la segunda fila
+    # 5. Insertar nuevas filas desde la segunda fila
     start_row = 2
     for row_idx, row_data in enumerate(resultados, start=start_row):
         for col_idx, value in enumerate(row_data, start=1):
             sheet.cell(row=row_idx, column=col_idx, value=value)
-    
+
     print(f"Se sobrescribieron {len(resultados)} filas en la hoja.")
 
-    # 8. Guardar el libro
+    # 6. Actualizar rango de la tabla si existe
+    if sheet._tables:
+        table = sheet._tables[0]  # Suponemos que hay solo una tabla
+        num_rows = len(resultados) + 1  # +1 por la cabecera
+        num_cols = len(headers)
+
+        end_col_letter = get_column_letter(num_cols)
+        new_range = f"A1:{end_col_letter}{num_rows}"
+        print(f"Actualizando rango de la tabla a: {new_range}")
+        table.ref = new_range
+
+    # 7. Guardar el libro
     try:
         book.save(file_path)
         print(f"Archivo guardado con los datos actualizados en '{file_path}'.")
