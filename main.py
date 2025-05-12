@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from openpyxl import load_workbook
-# from openpyxl.styles import Font # No se usa activamente
+# from openpyxl.styles import Font  # No se usa activamente
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
@@ -25,14 +25,14 @@ def main():
         'sslmode': 'require'
     }
     
-     # 2. Definir la nueva consulta SQL con fechas dinámicas
+    # 2. Definir la nueva consulta SQL con fechas dinámicas
     fecha_inicio_str = '2025-01-01'
     fecha_fin = datetime.now().date()
     fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
     
     print(f"Rango de fechas para la consulta: Desde {fecha_inicio_str} hasta {fecha_fin_str}")
 
-    # 3. Consulta SQL (modificada para que "FECHA FACTURA" sea un tipo de dato de fecha)
+    # 3. Consulta SQL
     query = f"""
     SELECT DISTINCT ON (sm.id)
     sm.invoice_id AS "ID FACTURA",
@@ -158,8 +158,8 @@ GROUP BY
     sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
  
 ORDER BY sm.id, stp.number_of_packages DESC;
-    """
-    
+    """  
+
     # 4. Ejecutar la consulta y obtener los datos
     try:
         with psycopg2.connect(**db_params) as conn:
@@ -184,8 +184,8 @@ ORDER BY sm.id, stp.number_of_packages DESC;
     except FileNotFoundError:
         print(f"No se encontró el archivo base '{file_path}'. Se aborta para no perder el formato.")
         return
-    
-        # 6. Eliminar el contenido existente desde la segunda fila (mantiene encabezados y formatos)
+
+    # 6. Eliminar el contenido existente desde la segunda fila (mantiene encabezados y formatos)
     for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
         for cell in row:
             cell.value = None
@@ -198,7 +198,6 @@ ORDER BY sm.id, stp.number_of_packages DESC;
     
     print(f"Se sobrescribieron {len(resultados)} filas en la hoja.")
 
-    
     # 8. Guardar el libro
     try:
         book.save(file_path)
