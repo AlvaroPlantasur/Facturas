@@ -4,30 +4,32 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 import sys
+import copy
 
 def main():
-    # Parámetros de entorno
+    # 1. Obtener credenciales y ruta del archivo
+    db_name = os.environ.get('DB_NAME')
+    db_user = os.environ.get('DB_USER')
+    db_password = os.environ.get('DB_PASSWORD')
+    db_host = os.environ.get('DB_HOST')
+    db_port = os.environ.get('DB_PORT')
+    file_path = os.environ.get('EXCEL_FILE_PATH')
+
     db_params = {
-        'dbname': os.environ.get('DB_NAME'),
-        'user': os.environ.get('DB_USER'),
-        'password': os.environ.get('DB_PASSWORD'),
-        'host': os.environ.get('DB_HOST'),
-        'port': os.environ.get('DB_PORT'),
-        'sslmode': 'require'
+        'dbname': db_name,
+        'user': db_user,
+        'password': db_password,
+        'host': db_host,
+        'port': db_port
     }
 
-    file_path = '/mnt/data/Master Facturas Desglosadas 2025.xlsx'
-    
-    if not file_path.endswith('.xlsx'):
-        print("❌ El archivo debe estar en formato .xlsx (Excel moderno).")
-        return
-
+    # 2. Definir fechas
     fecha_inicio_str = '2025-01-01'
-    fecha_fin_str = datetime.now().strftime('%Y-%m-%d')
+    fecha_fin = datetime.now().date()
+    fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
 
-    print(f"Consultando desde {fecha_inicio_str} hasta {fecha_fin_str}...")
-
-    query = """ SELECT DISTINCT ON (sm.id)
+    # 3. Consulta SQL
+    query = f"""SELECT DISTINCT ON (sm.id)
         sm.invoice_id AS "ID FACTURA",
         sp.name AS "DESCRIPCIÓN",
         sp.internal_number AS "CÓDIGO FACTURA",
@@ -150,9 +152,10 @@ def main():
         rp.nombre_comercial, spp.name, sp.internal_number, sp.origin, 
         sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
     
-    ORDER BY sm.id, stp.number_of_packages DESC; """
+    ORDER BY sm.id, stp.number_of_packages DESC;
+    """
 
-    # Ejecutar consulta
+    # 4. Ejecutar la consulta
     try:
         with psycopg2.connect(**db_params) as conn:
             with conn.cursor() as cur:
@@ -160,56 +163,57 @@ def main():
                 resultados = cur.fetchall()
                 headers = [desc[0] for desc in cur.description]
     except Exception as e:
-        print(f"❌ Error al ejecutar la consulta SQL: {e}")
+        print(f"Error al conectar o ejecutar la consulta: {e}")
         sys.exit(1)
 
     if not resultados:
-        print("⚠️ No hay datos para insertar en el Excel.")
+        print("No se obtuvieron resultados de la consulta.")
         return
-
-    # Cargar archivo Excel
-    try:
-        wb = load_workbook(file_path)
-        ws = wb.active
-    except Exception as e:
-        print(f"❌ No se pudo abrir el archivo Excel: {e}")
-        return
-
-    # Limpiar datos existentes (sin tocar encabezados)
-    max_row = ws.max_row
-    if max_row > 1:
-        for row in ws.iter_rows(min_row=2, max_row=max_row):
-            for cell in row:
-                cell.value = None
-
-    # Escribir encabezados si están vacíos
-    if ws.cell(row=1, column=1).value is None:
-        for j, header in enumerate(headers, start=1):
-            ws.cell(row=1, column=j, value=header)
-
-    # Insertar nuevas filas
-    for i, row_data in enumerate(resultados, start=2):
-        for j, value in enumerate(row_data, start=1):
-            ws.cell(row=i, column=j, value=value)
-
-    # Actualizar tabla si existe
-    if ws._tables:
-        table = ws._tables[0]  # Primera tabla
-        num_rows = len(resultados) + 1  # Incluye encabezado
-        num_cols = len(headers)
-        end_col = get_column_letter(num_cols)
-        new_range = f"A1:{end_col}{num_rows}"
-        table.ref = new_range
-        print(f"✅ Rango de tabla actualizado: {new_range}")
     else:
-        print("⚠️ No se encontró ninguna tabla definida en la hoja activa.")
+        print(f"Se obtuvieron {len(resultados)} filas de la consulta.")
 
-    # Guardar archivo
+    # 5. Cargar el archivo Excel
     try:
-        wb.save(file_path)
-        print("✅ Archivo Excel actualizado y guardado correctamente.")
-    except Exception as e:
-        print(f"❌ Error al guardar el archivo: {e}")
+        book = load_workbook(file_path)
+        sheet = book.active
+    except FileNotFoundError:
+        print(f"No se encontró el archivo '{file_path}'.")
+        return
+
+# 6. Borrar todas las filas de datos (manteniendo cabecera)
+    sheet.delete_rows(2, sheet.max_row - 1)
+
+# 7. Insertar todos los nuevos registros
+    for row in resultados:
+        sheet.append(row)
+
+    # 8. Copiar estilo desde fila 2 a nuevas filas
+    if sheet.max_row > 2:
+        for col in range(1, sheet.max_column + 1):
+            source_cell = sheet.cell(row=2, column=col)
+            for row in range(3, sheet.max_row + 1):
+                target_cell = sheet.cell(row=row, column=col)
+                target_cell.font = copy.copy(source_cell.font)
+                target_cell.fill = copy.copy(source_cell.fill)
+                target_cell.border = copy.copy(source_cell.border)
+                target_cell.alignment = copy.copy(source_cell.alignment)
+
+
+    # 9. Actualizar tabla
+    if "Portes" in sheet.tables:
+        tabla = sheet.tables["Portes"]
+        max_row = sheet.max_row
+        max_col = sheet.max_column
+        last_col_letter = get_column_letter(max_col)
+        new_ref = f"A1:{last_col_letter}{max_row}"
+        tabla.ref = new_ref
+        print(f"Tabla 'Portes' actualizada a rango: {new_ref}")
+    else:
+        print("No se encontró la tabla 'Portes'. No se actualizará la referencia.")
+
+    # 10. Guardar archivo
+    book.save(file_path)
+    print(f"Archivo actualizado correctamente: '{file_path}'.")
 
 if __name__ == '__main__':
     main()
