@@ -29,130 +29,97 @@ def main():
     fecha_fin_str = fecha_fin.strftime('%Y-%m-%d')
 
     # 3. Consulta SQL
-    query = f"""SELECT DISTINCT ON (sm.id)
-        sm.invoice_id AS "ID FACTURA",
-        sp.name AS "DESCRIPCIÓN",
-        sp.internal_number AS "CÓDIGO FACTURA",
-        sp.number AS "NÚMERO DEL ASIENTO",
-        to_char(sp.date_invoice, 'DD/MM/YYYY') AS "FECHA FACTURA",
-        sp.origin AS "DOCUMENTO ORIGEN",
-        pp.default_code AS "REFERENCIA PRODUCTO", 
-        pp.name AS "NOMBRE", 
-        COALESCE(pm.name, '') AS "MARCA",
-        s.name AS "SECCION", 
-        f.name AS "FAMILIA", 
-        sf.name AS "SUBFAMILIA",
-        rc.name AS "COMPAÑÍA",
-        ssp.name AS "SEDE",
-        stp.date_preparado_app AS "FECHA PREPARADO APP",
-        (CASE WHEN stp.directo_cliente THEN 'Sí' ELSE 'No' END) AS "CAMIÓN DIRECTO",
-        stp.number_of_packages AS "NUMERO DE BULTOS",
-        stp.num_pales AS "NUMERO DE PALES",
-        sp.portes AS "PORTES",
-        sp.portes_cubiertos AS "PORTES CUBIERTOS",
-        rp.nombre_comercial AS "CLIENTE",
-        rp.vat AS "CIF CLIENTE",
-        (CASE 
-            WHEN rpa.prov_id IS NOT NULL 
-            THEN (SELECT name FROM res_country_provincia WHERE id = rpa.prov_id) 
-            ELSE rpa.state_id_2 
-        END) AS "PROVINCIA",
-        rpa.city AS "CIUDAD",
-        (CASE 
-            WHEN rpa.cautonoma_id IS NOT NULL 
-            THEN (SELECT UPPER(name) FROM res_country_ca WHERE id = rpa.cautonoma_id) 
-            ELSE '' 
-        END) AS "COMUNIDAD",
-        c.name AS "PAÍS",
-        EXTRACT(MONTH FROM sp.date_invoice) AS "MES",  -- Cambiado a EXTRACT para número
-        EXTRACT(DAY FROM sp.date_invoice) AS "DÍA",   -- Cambiado a EXTRACT para número
-        spp.name AS "PREPARADOR",
-        sm.peso_arancel AS "PESO",
-        SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida
-                WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida
-            END
-        ) AS "UNIDADES VENTA",
-        SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
-                WHEN sp.type = 'out_refund' THEN -sm.price_subtotal
-            END
-        ) AS "BASE VENTA TOTAL",
-        SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.margen
-                WHEN sp.type = 'out_refund' THEN -sm.margen
-            END
-        ) AS "MARGEN EUROS",
-        SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.cantidad_pedida * sm.cost_price_real
-                WHEN sp.type = 'out_refund' THEN -sm.cantidad_pedida * sm.cost_price_real
-            END
-        ) AS "COSTE VENTA TOTAL",
-        'S-' || rp.id AS "ID BBSeeds",  -- ID Construdio desde el ID origen
-        (CASE 
-            WHEN rp.fiscal_position_texto = 'Recargo de Equivalencia' THEN 'Recargo de Equivalencia'
-            WHEN rp.fiscal_position_texto = 'Régimen Extracomunitario' THEN 'Régimen Extracomunitario'
-            WHEN rp.fiscal_position_texto = 'REGIMEN INTRACOMUNITARIO' THEN 'Régimen Intracomunitario'
-            WHEN rp.fiscal_position_texto = 'Régimen Intracomunitario' THEN 'Régimen Intracomunitario'
-            WHEN rp.fiscal_position_texto = 'REGIMEN NACIONAL' THEN 'Régimen Nacional'
-            ELSE rp.fiscal_position_texto
-        END) AS "Tipo Regimen",  -- Nueva columna "Coste Calculado" que es base menos margen
-        (SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.price_subtotal
-                WHEN sp.type = 'out_refund' THEN -sm.price_subtotal
-            END
-        ) - 
-        SUM(
-            CASE 
-                WHEN sp.type = 'out_invoice' THEN sm.margen
-                WHEN sp.type = 'out_refund' THEN -sm.margen
-            END
-        )) AS "Coste Calculado"
-    
-    FROM account_invoice_line sm
-    INNER JOIN account_invoice sp ON sp.id = sm.invoice_id
-    INNER JOIN product_product pp ON sm.product_id = pp.id
-    INNER JOIN res_partner_address rpa ON sp.address_invoice_id = rpa.id
-    INNER JOIN res_country c ON c.id = rpa.pais_id
-    LEFT JOIN stock_picking_invoice_rel spir ON spir.invoice_id = sp.id
-    LEFT JOIN stock_picking stp ON stp.id = spir.pick_id
-    LEFT JOIN stock_picking_preparador spp ON spp.id = stp.preparador
-    LEFT JOIN res_company rc ON rc.id = sp.company_id
-    LEFT JOIN res_partner rp ON rp.id = sp.partner_id
-    LEFT JOIN stock_sede_ps ssp ON ssp.id = sp.sede_id
-    LEFT JOIN product_category s ON s.id = pp.seccion
-    LEFT JOIN product_category f ON f.id = pp.familia
-    LEFT JOIN product_category sf ON sf.id = pp.subfamilia
-    LEFT JOIN product_marca pm ON pm.id = pp.marca
-    
-    WHERE sp.type IN ('out_invoice', 'out_refund') 
-    AND sp.state IN ('open', 'paid') 
-    AND sp.journal_id != 11 
-    AND sp.anticipo = FALSE 
-    AND pp.default_code NOT LIKE 'XXX%' 
-    AND sp.obsolescencia = FALSE 
-    AND rp.nombre_comercial NOT LIKE '%PLANTASUR TRADING%' 
-    AND rp.nombre_comercial NOT LIKE '%PLANTADUCH%' 
-    AND sp.date_invoice BETWEEN '{fecha_inicio_str}' AND '{fecha_fin_str}'
-    
-    GROUP BY 
-        sm.id, rp.id, sm.company_id, sp.sede_id, sp.date_invoice, 
-        pp.seccion, pp.familia, pp.subfamilia, pp.default_code, pp.id, 
-        sm.cantidad_pedida, sp.partner_id, rpa.prov_id, rpa.state_id_2, 
-        rpa.cautonoma_id, c.name, sp.address_invoice_id, pp.proveedor_id1, 
-        sm.price_subtotal, sm.margen, pp.tarifa5, sp.directo_cliente, 
-        sp.obsolescencia, sp.anticipo, sp.name, s.name, f.name, sf.name, 
-        rc.name, ssp.name, stp.date_preparado_app, stp.directo_cliente, 
-        stp.number_of_packages, stp.num_pales, sp.portes, sp.portes_cubiertos, 
-        rp.nombre_comercial, spp.name, sp.internal_number, sp.origin, 
-        sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
-    
-    ORDER BY sm.id, stp.number_of_packages DESC;
+    query = f"""select 
+	ail.invoice_id as "ID FACTURA",
+	ai.name as "REFERENCIA ALBARÁN",
+	ai.internal_number as "CÓDIGO FACTURA",
+    to_char(ai.date_invoice, 'DD/MM/YYYY') as "FECHA FACTURA",
+	pp.default_code as "REFERENCIA PRODUCTO", 
+	pp.name as "NOMBRE", 
+	s.name AS "SECCION", 
+	f.name as "FAMILIA", 
+	sf.name as "SUBFAMILIA",
+	rc.name as "COMPAÑÍA",
+	ssp.name as "SEDE",
+	(CASE WHEN stp.directo_cliente = true THEN 'Sí' ELSE 'No' END) AS "CAMIÓN DIRECTO",
+	SUM(stp.cargos_extra_prorrateo) AS "CARGOS EXTRA",
+	ai.portes as "PORTES",
+	rp.nombre_comercial as "CLIENTE",
+	rp.vat as "CIF CLIENTE",
+	c.name as "PAÍS",
+	extract(MONTH FROM ai.date_invoice) as "MES",
+	extract(MONTH FROM ai.date_invoice) as "DÍA",
+	(
+		case when ai.type = 'in_invoice' then ail.cantidad_pedida
+		when ai.type = 'in_refund' then -ail.cantidad_pedida
+		end
+	) as "UNIDADES COMPRA",
+	(
+		case when ai.type = 'in_invoice' then ail.price_subtotal
+		when ai.type = 'in_refund' then -ail.price_subtotal
+		end
+	) as "BASE COMPRA TOTAL",
+	(
+		case when ai.type = 'in_invoice' then sum(case when coalesce(at.amount,0) = 1 then 0.0 else (coalesce(at.amount,0)*ail.price_subtotal) end)
+		when ai.type = 'in_refund' then -sum(case when coalesce(at.amount,0) = 1 then 0.0 else (coalesce(at.amount,0)*ail.price_subtotal) end)
+		end
+	) as "IMPUESTOS",
+	(
+		case when ai.type = 'in_invoice' then ail.price_subtotal + sum(case when coalesce(at.amount,0) = 1 then 0.0 else (coalesce(at.amount,0)*ail.price_subtotal) end)
+		when ai.type = 'in_refund' then -(ail.price_subtotal + sum(case when coalesce(at.amount,0) = 1 then 0.0 else (coalesce(at.amount,0)*ail.price_subtotal) end))
+		end
+	) as "IMPORTE COMPRA TOTAL"
+ 
+from account_invoice_line ail
+inner join account_invoice ai ON ai.id = ail.invoice_id
+inner join product_product pp ON ail.product_id = pp.id
+inner join res_partner rp on rp.id = ai.partner_id
+inner join res_partner_address rpa ON rpa.id = ai.address_invoice_id
+inner join res_country c on c.id = rpa.pais_id
+left outer join stock_picking stp ON stp.name = split_part(ai.origin,':', 1)
+left outer join res_company rc on rc.id = ai.company_id
+left outer join stock_sede_ps ssp on ssp.id = ai.sede_id
+left outer join product_category s ON (s.id = pp.seccion)
+left outer join product_category f ON (f.id = pp.familia)
+left outer join product_category sf ON (sf.id = pp.subfamilia)
+left outer join account_invoice_line_tax ailt on ail.id = ailt.invoice_line_id
+left outer join account_tax at on ailt.tax_id = at.id
+where ai.state in ('open','paid') and ai.type in ('in_invoice','in_refund') and ai.date_invoice >= '{fecha_inicio_str}' and ai.date_invoice <= '{fecha_fin_str}' and ai.obsolescencia = false
+group by 
+	ail.id,
+	rp.id,
+	ail.company_id,
+	ai.sede_id,
+	ai.date_invoice,
+	to_char(ai.date_invoice, 'YYYY'),
+	to_char(ai.date_invoice, 'MM'),
+	to_char(ai.date_invoice, 'YYYY-MM-DD'),
+	pp.seccion,
+	pp.familia,
+	pp.subfamilia,
+	pp.default_code,
+	pp.id,
+	ai.partner_id,
+	ai.anticipo,
+	c.name,
+	rpa.prov_id,
+	rpa.state_id_2,
+	ai.name,
+	ai.internal_number,
+	ai.origin,
+	ail.cantidad_pedida,
+	ail.price_subtotal,
+	s.name,
+	f.name,
+	sf.name,
+	rc.name,
+	ssp.name,
+	ai.directo_cliente,
+	ai.portes,
+	rp.nombre_comercial,
+	ai.type,
+	stp.directo_cliente,
+	rp.vat;
     """
 
     # 4. Ejecutar la consulta
@@ -200,14 +167,14 @@ def main():
 
 
     # 9. Actualizar tabla
-    if "Lineas2025" in sheet.tables:
-        tabla = sheet.tables["Lineas2025"]
+    if "CompDesglosadas2025" in sheet.tables:
+        tabla = sheet.tables["CompDesglosadas2025"]
         max_row = sheet.max_row
         max_col = sheet.max_column
         last_col_letter = get_column_letter(max_col)
         new_ref = f"A1:{last_col_letter}{max_row}"
         tabla.ref = new_ref
-        print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
+        print(f"Tabla 'CompDesglosadas2025' actualizada a rango: {new_ref}")
     else:
         print("No se encontró la tabla 'Lineas2025'. No se actualizará la referencia.")
 
