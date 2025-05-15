@@ -17,13 +17,17 @@ def main():
     }
 
     file_path = '/mnt/data/Master Facturas Desglosadas 2025.xlsx'
+    
+    if not file_path.endswith('.xlsx'):
+        print("❌ El archivo debe estar en formato .xlsx (Excel moderno).")
+        return
+
     fecha_inicio_str = '2025-01-01'
     fecha_fin_str = datetime.now().strftime('%Y-%m-%d')
 
-    print(f"Consultando desde {fecha_inicio_str} hasta {fecha_fin_str}")
+    print(f"Consultando desde {fecha_inicio_str} hasta {fecha_fin_str}...")
 
-    query = f""" 
-    SELECT DISTINCT ON (sm.id)
+    query = """ SELECT DISTINCT ON (sm.id)
     sm.invoice_id AS "ID FACTURA",
     sp.name AS "DESCRIPCIÓN",
     sp.internal_number AS "CÓDIGO FACTURA",
@@ -146,8 +150,7 @@ GROUP BY
     rp.nombre_comercial, spp.name, sp.internal_number, sp.origin, 
     sp.number, rp.vat, rp.fiscal_position_texto, pm.name, rpa.city
  
-ORDER BY sm.id, stp.number_of_packages DESC;
-    """
+ORDER BY sm.id, stp.number_of_packages DESC; """
 
     # Ejecutar consulta
     try:
@@ -157,49 +160,56 @@ ORDER BY sm.id, stp.number_of_packages DESC;
                 resultados = cur.fetchall()
                 headers = [desc[0] for desc in cur.description]
     except Exception as e:
-        print(f"Error al ejecutar la consulta: {e}")
+        print(f"❌ Error al ejecutar la consulta SQL: {e}")
         sys.exit(1)
 
     if not resultados:
-        print("No hay datos para insertar.")
+        print("⚠️ No hay datos para insertar en el Excel.")
         return
 
-    # Cargar archivo
+    # Cargar archivo Excel
     try:
         wb = load_workbook(file_path)
         ws = wb.active
     except Exception as e:
-        print(f"No se pudo abrir el archivo Excel: {e}")
+        print(f"❌ No se pudo abrir el archivo Excel: {e}")
         return
 
-    # Borrar datos anteriores (sin borrar encabezados)
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            cell.value = None
+    # Limpiar datos existentes (sin tocar encabezados)
+    max_row = ws.max_row
+    if max_row > 1:
+        for row in ws.iter_rows(min_row=2, max_row=max_row):
+            for cell in row:
+                cell.value = None
 
-    # Insertar nuevos datos desde fila 2
+    # Escribir encabezados si están vacíos
+    if ws.cell(row=1, column=1).value is None:
+        for j, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=j, value=header)
+
+    # Insertar nuevas filas
     for i, row_data in enumerate(resultados, start=2):
         for j, value in enumerate(row_data, start=1):
             ws.cell(row=i, column=j, value=value)
 
-    # Actualizar tabla existente
+    # Actualizar tabla si existe
     if ws._tables:
-        table = ws._tables[0]  # Usamos la primera tabla
-        num_rows = len(resultados) + 1  # +1 por encabezado
+        table = ws._tables[0]  # Primera tabla
+        num_rows = len(resultados) + 1  # Incluye encabezado
         num_cols = len(headers)
         end_col = get_column_letter(num_cols)
         new_range = f"A1:{end_col}{num_rows}"
-        print(f"Actualizando tabla a rango: {new_range}")
         table.ref = new_range
+        print(f"✅ Rango de tabla actualizado: {new_range}")
     else:
         print("⚠️ No se encontró ninguna tabla definida en la hoja activa.")
 
-    # Guardar cambios
+    # Guardar archivo
     try:
         wb.save(file_path)
-        print("Archivo actualizado y guardado correctamente.")
+        print("✅ Archivo Excel actualizado y guardado correctamente.")
     except Exception as e:
-        print(f"Error al guardar el archivo: {e}")
+        print(f"❌ Error al guardar el archivo: {e}")
 
 if __name__ == '__main__':
     main()
