@@ -200,16 +200,16 @@ def main():
 
 
     # 9. Actualizar tabla
-    if "Portes" in sheet.tables:
-        tabla = sheet.tables["Portes"]
+    if "Lineas2025" in sheet.tables:
+        tabla = sheet.tables["Lineas2025"]
         max_row = sheet.max_row
         max_col = sheet.max_column
         last_col_letter = get_column_letter(max_col)
         new_ref = f"A1:{last_col_letter}{max_row}"
         tabla.ref = new_ref
-        print(f"Tabla 'Portes' actualizada a rango: {new_ref}")
+        print(f"Tabla 'Lineas2025' actualizada a rango: {new_ref}")
     else:
-        print("No se encontró la tabla 'Portes'. No se actualizará la referencia.")
+        print("No se encontró la tabla 'Lineas2025'. No se actualizará la referencia.")
 
     # 10. Guardar archivo
     book.save(file_path)
